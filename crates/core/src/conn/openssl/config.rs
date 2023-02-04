@@ -1,5 +1,5 @@
 //! openssl module
-use std::fmt::{self, Formatter};
+use std::{fmt::{self, Formatter}, sync::Arc};
 use std::fs::File;
 use std::io::{Error as IoError, Read, Result as IoResult};
 use std::path::Path;
@@ -86,9 +86,12 @@ impl Keycert {
     }
 }
 
+type BuilderFn = dyn Fn(&mut SslAcceptorBuilder) + Send + Sync + 'static;
+
 /// Builder to set the configuration for the Tls server.
 pub struct OpensslConfig {
     keycert: Keycert,
+    builder_fn: Option<Arc<BuilderFn>>,
 }
 
 impl fmt::Debug for OpensslConfig {
@@ -102,7 +105,15 @@ impl OpensslConfig {
     /// Create new `OpensslConfig`
     #[inline]
     pub fn new(keycert: Keycert) -> Self {
-        OpensslConfig { keycert }
+        OpensslConfig { keycert, builder_fn: None }
+    }
+
+    /// Provide fn to change `SslAcceptorBuilder`
+    pub fn set_builder_fn<CB>(&mut self, builder_fn: CB)
+    where
+        CB: Fn(&mut SslAcceptorBuilder) + Send + Sync + 'static,
+    {
+        self.builder_fn = Some(Arc::new(builder_fn));
     }
 
     /// Create [`SslAcceptorBuilder`]
@@ -127,6 +138,9 @@ impl OpensslConfig {
         builder.set_alpn_select_callback(move |_: &mut SslRef, list: &[u8]| {
             openssl::ssl::select_next_proto(PROTOS, list).ok_or(openssl::ssl::AlpnError::NOACK)
         });
+        if let Some(builder_fn) = &self.builder_fn {
+            builder_fn(&mut builder);
+        }
         Ok(builder)
     }
 }
