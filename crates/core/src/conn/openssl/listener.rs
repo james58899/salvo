@@ -99,11 +99,25 @@ where
         self.ssl().selected_alpn_protocol().map(version_from_alpn)
     }
     async fn serve(self, handler: HyperHandler, builders: Arc<HttpBuilders>) -> IoResult<()> {
-        builders
-            .http2
-            .serve_connection(self, handler)
-            .await
-            .map_err(|e| IoError::new(ErrorKind::Other, e.to_string()))
+        if self
+            .ssl()
+            .selected_alpn_protocol()
+            .map(version_from_alpn)
+            .unwrap_or_default()
+            == Version::HTTP_2
+        {
+            builders
+                .http2
+                .serve_connection(self, handler)
+                .await
+                .map_err(|e| IoError::new(ErrorKind::Other, e.to_string()))
+        } else {
+            builders
+                .http1
+                .serve_connection(self, handler)
+                .await
+                .map_err(|e| IoError::new(ErrorKind::Other, e.to_string()))
+        }
     }
 }
 
